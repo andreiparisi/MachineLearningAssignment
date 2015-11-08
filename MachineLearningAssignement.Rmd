@@ -1,0 +1,100 @@
+#Machine Learning Assignment
+
+# Data cleaning
+
+Before actually building the algorithm, we need to clean the data a bit. For example of the 160 variables, there are plenty that are only NA :
+
+```{r}
+data <- read.csv("pml-training.csv")
+na_count <-sapply(data, function(y) sum(length(which(is.na(y)))))
+length(na_count[na_count > 0])
+length(na_count[na_count == 19216])
+include <- names(na_count[na_count==0])
+data <- data[ , include]
+````
+
+Then variables that obviously do not predict the type of exercise are also removed. These are row_id, time stamps etc.:
+
+```{r}
+data <- data [ , -3:-7]
+data <- data [ , -1]
+```
+
+Also we need to convert all variables that have been incorrectly read as factors to numeric
+
+```{r}
+data[ , 2:86] <- as.numeric(unlist(data[ , 2:86]))
+```
+
+Now we have a nice clean dataset with classe and 86 potential predictors:
+
+## Model selection & cross validation
+
+In order to build the Machine Learning algorithm, the training data will be split each time into two sets: a training subset and a testing set for each model we're going to evaluate. This is done with a 60% 40 % ratio using the caret package. 
+
+Regarding the choice of model, because the outcome is a class and not a continuous variable, a model using trees should deliver better the result. So the method used will be random Forest as it is one of the most accurate,
+
+```{r}
+library(caret)
+intrain <- createDataPartition(data$classe, list=FALSE, p = 0.6)
+train <- data[ intrain, ] 
+test <- data[ -intrain, ] 
+library(randomForest)
+```
+
+Let's first calculate a model using all of the variables. This model will obviously be overidentified:
+
+```{r cache=TRUE}
+mod3 <- train(classe ~ . , method = "rf", data = train)
+mod3
+confusionMatrix(test$classe, predict(mod3, test))
+```
+
+As we can see this model is already doing quite well on the test data but since it's using all the variables, it's quite possible that it is overffited.
+
+In order to select the relevant predictors let's calculate the rfcv
+
+```{r cache=TRUE}
+rfcv <- rfcv( trainx = train[ , -87], trainy = train[ , 87] )
+rfcv$error.cv
+```
+
+This tells us that using 43 variables instead of 86 will have a very small impact on the error and it's therefore better because variance will be smaller with a model with less predictors. So using the varImp function, let's calculate the 43 most important variables according to mod3:
+
+```{r cache=TRUE}
+imp <- varImp(mod3)
+imp2 <- data.frame(imp[1])
+vars <- rownames(imp2)[order(imp2$Overall, decreasing=TRUE)[1:43]]
+```
+
+Now let's resample the data and calculate the random forest model with only 43 predictors:
+
+```{r cache=TRUE}
+data2 <- data[ , c("classe", vars)]
+intrain <- createDataPartition(data2$classe, list=FALSE, p = 0.6)
+train2 <- data2[ intrain, ] 
+test2 <- data2[ -intrain, ] 
+mod4 <- train(classe ~ . , method = "rf", data = train2)
+mod4
+confusionMatrix(test2$classe, predict(mod4, test2))
+```
+
+Now this model with fewer predictors actually performs better than the one with all predictors therefore also the out of sample error is expected to be smaller than this one. NOtice also that for cross-validation this was calculated using a new sample. All in all this seems to be a very accurate model with accuracy around 99%.
+
+# Final Test
+
+Let's load the final test data of 20 exercieses and subset the relevant variables:
+
+```{r cache=TRUE}
+finaltest <- read.csv("pml-testing.csv")
+finaltest <- finaltest[ ,  vars]
+finaltest[ , vars] <- as.numeric(unlist(finaltest[ , vars]))
+```
+
+and let's predict the ourcomes:
+
+```{r}
+predict(mod4, finaltest)
+```
+
+
